@@ -2,31 +2,45 @@ import SwiftUI
 
 struct GameBoardView: View {
     @ObservedObject var gameModel: GameModel
+    let theme: Theme
     @State private var foodScale: CGFloat = 1.0
+    @State private var showParticles = false
+    @State private var particlePosition: CGPoint = .zero
+    @State private var snakeScales: [CGFloat]
+    
+    init(gameModel: GameModel, theme: Theme) {
+        self.gameModel = gameModel
+        self.theme = theme
+        self._snakeScales = State(initialValue: Array(repeating: 1.0, count: gameModel.snake.count))
+    }
     
     // Custom colors for snake gradient
-    private let snakeHeadGradient = LinearGradient(
-        colors: [.green, .mint],
-        startPoint: .topLeading,
-        endPoint: .bottomTrailing
-    )
+    private var snakeHeadGradient: LinearGradient {
+        LinearGradient(
+            colors: theme.snake,
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+    }
     
-    private let snakeBodyGradient = LinearGradient(
-        colors: [.mint, .green.opacity(0.7)],
-        startPoint: .topLeading,
-        endPoint: .bottomTrailing
-    )
+    private var snakeBodyGradient: LinearGradient {
+        LinearGradient(
+            colors: [theme.snake[1], theme.snake[0].opacity(0.7)],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+    }
     
     var body: some View {
         GeometryReader { geometry in
-            let cellSize = min(geometry.size.width, geometry.size.height) / CGFloat(gameModel.boardSize)
+            let cellSize = min(geometry.size.width, geometry.size.height) / CGFloat(gameModel.settings.difficulty.boardSize)
             
             ZStack {
                 // Background pattern
                 backgroundPattern(cellSize: cellSize)
                 
                 // Grid lines
-                gridLines(cellSize: cellSize, boardSize: gameModel.boardSize)
+                gridLines(cellSize: cellSize, boardSize: gameModel.settings.difficulty.boardSize)
                 
                 // Snake
                 ForEach(0..<gameModel.snake.count, id: \.self) { index in
@@ -40,6 +54,7 @@ struct GameBoardView: View {
                             snakeBody(at: point, size: cellSize)
                         }
                     }
+                    .scaleEffect(snakeScales[min(index, snakeScales.count - 1)])
                     .position(
                         x: CGFloat(point.x) * cellSize + cellSize / 2,
                         y: CGFloat(point.y) * cellSize + cellSize / 2
@@ -48,6 +63,15 @@ struct GameBoardView: View {
                 
                 // Animated food
                 foodView(at: gameModel.food, size: cellSize)
+                
+                // Particle effect
+                if showParticles {
+                    ParticleSystem(
+                        theme: theme,
+                        position: particlePosition,
+                        onComplete: { showParticles = false }
+                    )
+                }
             }
             .gesture(
                 DragGesture(minimumDistance: 10)
@@ -70,6 +94,31 @@ struct GameBoardView: View {
                         }
                     }
             )
+            .onChange(of: gameModel.snake.count) { newCount in
+                if newCount > snakeScales.count {
+                    // Snake ate food
+                    snakeScales.append(0.0)
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
+                        snakeScales[snakeScales.count - 1] = 1.0
+                    }
+                    
+                    // Show particle effect
+                    let foodPoint = gameModel.food
+                    particlePosition = CGPoint(
+                        x: CGFloat(foodPoint.x) * cellSize + cellSize / 2,
+                        y: CGFloat(foodPoint.y) * cellSize + cellSize / 2
+                    )
+                    showParticles = true
+                    
+                    // Animate snake head
+                    withAnimation(.spring(response: 0.2, dampingFraction: 0.5)) {
+                        snakeScales[0] = 1.3
+                    }
+                    withAnimation(.spring(response: 0.2, dampingFraction: 0.5).delay(0.1)) {
+                        snakeScales[0] = 1.0
+                    }
+                }
+            }
         }
         .aspectRatio(1, contentMode: .fit)
         .background(Color.white)
@@ -80,15 +129,15 @@ struct GameBoardView: View {
     // Background pattern
     private func backgroundPattern(cellSize: CGFloat) -> some View {
         Path { path in
-            for row in 0...gameModel.boardSize {
-                for col in 0...gameModel.boardSize {
+            for row in 0...gameModel.settings.difficulty.boardSize {
+                for col in 0...gameModel.settings.difficulty.boardSize {
                     let x = CGFloat(col) * cellSize
                     let y = CGFloat(row) * cellSize
                     path.addRect(CGRect(x: x, y: y, width: cellSize/2, height: cellSize/2))
                 }
             }
         }
-        .fill(Color.mint.opacity(0.05))
+        .fill(theme.secondary.opacity(0.05))
     }
     
     // Grid lines
@@ -107,7 +156,7 @@ struct GameBoardView: View {
                 path.addLine(to: CGPoint(x: CGFloat(boardSize) * cellSize, y: y))
             }
         }
-        .stroke(Color.gray.opacity(0.2), lineWidth: 1)
+        .stroke(theme.primary.opacity(0.2), lineWidth: 1)
     }
     
     // Snake head with eyes and custom shape
@@ -144,7 +193,7 @@ struct GameBoardView: View {
             // Outer glow
             Circle()
                 .fill(RadialGradient(
-                    colors: [.red.opacity(0.3), .clear],
+                    colors: [theme.food[0].opacity(0.3), .clear],
                     center: .center,
                     startRadius: 0,
                     endRadius: size * 0.6
@@ -155,7 +204,7 @@ struct GameBoardView: View {
             // Food item
             Circle()
                 .fill(LinearGradient(
-                    colors: [.red, .orange],
+                    colors: theme.food,
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
                 ))
